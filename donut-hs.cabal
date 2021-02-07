@@ -10,6 +10,7 @@ build-type:          Simple
 executable donut-hs
   main-is:             Main.hs
   other-modules:       Data.Vector
-  build-depends:       base >=4.14 && <4.15
+  build-depends:       base >=4.14 && <4.15,
+                       terminal-size
   hs-source-dirs:      src
   default-language:    Haskell2010
