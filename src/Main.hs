@@ -22,7 +22,7 @@ r' = 25
 -- | Generates every point of a circle of radius r and
 -- center c.
 generateCircle :: Vector Float -> [Vector Float]
-generateCircle c = map ((+) c . vradius) [0.0,0.05..2*pi] 
+generateCircle c = map ((+) c . vradius) [0.0,0.1..2*pi] 
   where
     -- | Generates a vector corresponding to the
     -- radius, rotated by the given angle theta.
@@ -30,6 +30,16 @@ generateCircle c = map ((+) c . vradius) [0.0,0.05..2*pi]
     -- vector the vector c.
     vradius :: Float -> Vector Float
     vradius theta = Vector (r * cos theta) (r * sin theta) 0
+
+-- | Generates every point at the surface of a torus of center c.
+generateTorus :: Vector Float -> [Vector Float]
+generateTorus c = concatMap circle [0.0,0.05..2*pi]
+  where
+    circle phi = map (rotateCircle phi) . generateCircle $ circleCenter
+      where
+        circleCenter = c + Vector r' 0 0
+        -- | Applies a rotation matrix to a point.
+        rotateCircle phi (Vector x y z) = Vector (x * cos phi) y (negate $ sin phi * (r' + r*cos phi))
 
 -- | Projects a vector to a point on the screen
 project :: Vector Float -> ScreenPos
@@ -54,7 +64,7 @@ renderScreenCoordinates coordinates =
 render :: Window Int -> [[Char]]
 render win@(Window w h) = coordinates
   where 
-    coordinates = renderScreenCoordinates $ map project $ generateCircle (Vector r' 5 1)
+    coordinates = renderScreenCoordinates $ map project $ generateTorus (Vector r' 0 1)
 
 main :: IO ()
 main = do
