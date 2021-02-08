@@ -2,20 +2,33 @@ module Main where
 
 import Data.Vector
 import System.Console.Terminal.Size
+import Data.Bifunctor
+import Data.Ix
+import Data.List.Split
+
+type NormalVector = Vector
+
+type Luminance = Float
+
+type ShapePoint = (Vector Float, NormalVector Float)
+
+type ShadedPoint = (Vector Float, Luminance)
 
 type ScreenPos = (Int, Int)
+
+type RenderablePoint = (ScreenPos, Char)
 
 type Grid = [[Char]]
 
 k :: Float 
 k = 15
 k2 :: Float 
-k2 = 5
+k2 = 10
 
 -- | A torus is essentially a circle cloned around a central point;
 -- we thus define r as being the radius of the circle,
 r :: Float
-r = 1
+r = 3
 -- and r2 a being the distance between the center of the 
 -- circle and the central point of the torus.
 r2 :: Float
@@ -23,9 +36,12 @@ r2 = 2
 
 -- | Generates every point of a circle of radius r and
 -- center c.
-generateCircle :: [Vector Float]
-generateCircle = map ((+) (Vector r2 0 0) . vradius) [0.0,0.2..2*pi] 
+generateCircle :: [ShapePoint]
+generateCircle = map generatePoint [0.0,0.5..2*pi]
   where
+    generatePoint :: Float -> ShapePoint
+    generatePoint theta = (Vector r2 0 0 + vradius theta, vnormal theta)
+
     -- | Generates a vector corresponding to the
     -- radius, rotated by the given angle theta.
     -- It is centered at point (0,0,0); we need to add that
@@ -33,10 +49,16 @@ generateCircle = map ((+) (Vector r2 0 0) . vradius) [0.0,0.2..2*pi]
     vradius :: Float -> Vector Float
     vradius theta = Vector (r * cos theta) (r * sin theta) 0
 
+    -- | The surface normal of one of the point of the circle is
+    -- basically the same as a point on a unit circle centered at (0,0,0).
+    -- We do that to make computations easier.
+    vnormal :: Float -> NormalVector Float
+    vnormal theta = Vector (cos theta) (sin theta) 0
+
 -- | Generates every point at the surface of a torus of center c,
 -- rotated on the x-axis by A and on the y-axis by B.
-generateTorus :: Float -> Float -> [Vector Float]
-generateTorus a b = concatMap (circle a b) [0.0,0.1..2*pi]
+generateTorus :: Float -> Float -> [ShadedPoint]
+generateTorus a b = concatMap circle [0.0,0.2..2*pi]
   where
     -- | Precomputes some values.
     sin_A = sin a
@@ -46,44 +68,69 @@ generateTorus a b = concatMap (circle a b) [0.0,0.1..2*pi]
 
     -- | Calculate one of the "slice" of the torus,
     -- by rotating a circle by A and B.
-    circle :: Float -> Float -> Float -> [Vector Float]
-    circle a b phi = map (rotate phi) generateCircle
+    circle :: Float -> [ShadedPoint]
+    circle phi = map (luminance . bimap rotate rotate) generateCircle
       where
         sin_phi = sin phi
         cos_phi = cos phi
 
         -- | Applies a rotation matrix to a point.
-        rotate phi (Vector x y z) = Vector
+        rotate :: Vector Float -> Vector Float
+        rotate (Vector x y z) = Vector
           ((x * (cos_B * cos_phi + sin_A * sin_B * sin_phi)) - y * cos_A * cos_B)
           ((x * (sin_B * cos_phi - cos_A * sin_B * sin_phi)) + y * cos_A * cos_B)
           (x * cos_A * sin_phi + y * sin_A)
 
+-- | Computes the luminance of a point based of its normal vector,
+-- against the light vector (0,1,-1).
+luminance :: ShapePoint -> ShadedPoint
+luminance (point, Vector _ ny nz) = (point, ny - nz)
+
+luminanceToChar :: Luminance -> Char
+luminanceToChar l
+  | l > 0     = chars !! index
+  | otherwise = ' '
+  where 
+    sqrt2 = 1.4142135624
+    chars = ".,-~:;=!*#$@"
+    maxIndex = fromIntegral (length chars - 1)
+    index = floor $ l * maxIndex / sqrt2
+
+zbuffer :: [(Vector Float, RenderablePoint)] -> [RenderablePoint]
+zbuffer coordinates = map (solve . conflicts) $ [ (x, y) | y <- take 24 [0..], x <- take 40 [0..] ] --((0,0), (80,24))
+  where
+    conflicts :: ScreenPos -> [(Vector Float, RenderablePoint)]
+    conflicts pos
+      | null filtered = [(Vector 0 0 0, (pos, ' '))]
+      | otherwise     = filtered
+      where filtered = filter ((== pos) . fst . snd) coordinates
+      
+    solve :: [(Vector Float, RenderablePoint)] -> RenderablePoint
+    solve = snd . foldl1 vmax
+      where 
+        vmax v@(Vector x y z,_) v'@(Vector _ _ maxZ,_)
+          | z > maxZ  = v
+          | otherwise = v'
+
 -- | Projects a vector to a point on the screen.
 project :: Vector Float -> ScreenPos
 project v@(Vector _ _ z) = pair . fmap (round . (* (k/(k2 + z)))) $ v
-  where pair (Vector x y _) = (x, y)
+  where pair (Vector x y _) = (x+20, y+12)
 
 -- | Creates our final render made out of char,
 -- based on screen coordinates that must get rendered.
-renderScreenCoordinates :: [ScreenPos] -> Grid
-renderScreenCoordinates coordinates = 
-  map (concatMap (\cell -> if mustRender cell then ".." else "  ")) gridCoordinates
-  where 
-    gridCoordinates :: [[ScreenPos]]
-    gridCoordinates = [ 
-      [ (x, y) | x <- take 40 [0..] ]
-      | y <- take 24 [0..] ]
-
-    mustRender :: ScreenPos -> Bool
-    mustRender (x,y) = (x-20, y-12) `elem` coordinates
+-- Checkout: https://stackoverflow.com/questions/23080908/printing-2d-grid-from-list-of-triples
+renderScreenCoordinates :: [RenderablePoint] -> Grid
+renderScreenCoordinates = chunksOf 80 . concatMap ((\c -> c:[c]) . snd)
 
 -- | Starts the rendering process.
 render :: Window Int -> [[Char]]
-render win@(Window w h) = coordinates
-  where 
-    coordinates = renderScreenCoordinates $ 
-      map project $ 
-      generateTorus (pi/2) (pi/2)
+render win@(Window w h) = do
+  let torus = generateTorus (pi/2) (pi/2)
+  let renderable = map (\(pos, lum) -> (pos, (project pos, luminanceToChar lum))) torus :: [(Vector Float, RenderablePoint)]
+  let zbuffered = zbuffer renderable
+
+  renderScreenCoordinates zbuffered
 
 main :: IO ()
 main = do
