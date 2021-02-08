@@ -33,28 +33,32 @@ generateCircle = map ((+) (Vector r2 0 0) . vradius) [0.0,0.2..2*pi]
     vradius :: Float -> Vector Float
     vradius theta = Vector (r * cos theta) (r * sin theta) 0
 
--- | Generates every point at the surface of a torus of center c.
-generateTorus :: [Vector Float]
-generateTorus = concatMap circle [0.0,0.1..2*pi]
+-- | Generates every point at the surface of a torus of center c,
+-- rotated on the x-axis by A and on the y-axis by B.
+generateTorus :: Float -> Float -> [Vector Float]
+generateTorus a b = concatMap (circle a b) [0.0,0.1..2*pi]
   where
-    circle phi = map (rotateCircle phi (pi/2) (pi/2)) generateCircle
+    -- | Precomputes some values.
+    sin_A = sin a
+    sin_B = sin b
+    cos_A = cos a
+    cos_B = cos b
 
-    -- | Applies a rotation matrix to a point.
-    rotateCircle phi a b (Vector x y z) = 
-      let
-        sin_A = sin a
-        sin_B = sin b
+    -- | Calculate one of the "slice" of the torus,
+    -- by rotating a circle by A and B.
+    circle :: Float -> Float -> Float -> [Vector Float]
+    circle a b phi = map (rotate phi) generateCircle
+      where
         sin_phi = sin phi
-        cos_A = cos a
-        cos_B = cos b
         cos_phi = cos phi
-      --in Vector (x * cos phi) y ((-x) * sin phi)
-      in Vector
-        ((x * (cos_B * cos_phi + sin_A * sin_B * sin_phi)) - y * cos_A * cos_B)
-        ((x * (sin_B * cos_phi - cos_A * sin_B * sin_phi)) + y * cos_A * cos_B)
-        (x * cos_A * sin_phi + y * sin_A)
 
--- | Projects a vector to a point on the screen
+        -- | Applies a rotation matrix to a point.
+        rotate phi (Vector x y z) = Vector
+          ((x * (cos_B * cos_phi + sin_A * sin_B * sin_phi)) - y * cos_A * cos_B)
+          ((x * (sin_B * cos_phi - cos_A * sin_B * sin_phi)) + y * cos_A * cos_B)
+          (x * cos_A * sin_phi + y * sin_A)
+
+-- | Projects a vector to a point on the screen.
 project :: Vector Float -> ScreenPos
 project v@(Vector _ _ z) = pair . fmap (round . (* (k/(k2 + z)))) $ v
   where pair (Vector x y _) = (x, y)
@@ -77,8 +81,9 @@ renderScreenCoordinates coordinates =
 render :: Window Int -> [[Char]]
 render win@(Window w h) = coordinates
   where 
-    coordinates = renderScreenCoordinates $ map project generateTorus
-      -- generateCircle (Vector r2 0 0)
+    coordinates = renderScreenCoordinates $ 
+      map project $ 
+      generateTorus (pi/2) (pi/2)
 
 main :: IO ()
 main = do
