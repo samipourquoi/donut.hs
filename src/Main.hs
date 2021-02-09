@@ -21,23 +21,23 @@ type RenderablePoint = (ScreenPos, Char)
 type Grid = [[Char]]
 
 k :: Float 
-k = 15
+k = 18
 k2 :: Float 
-k2 = 10
+k2 = 6.5
 
 -- | A torus is essentially a circle cloned around a central point;
 -- we thus define r as being the radius of the circle,
 r :: Float
-r = 3
+r = 1.2
 -- and r2 a being the distance between the center of the 
 -- circle and the central point of the torus.
 r2 :: Float
-r2 = 2
+r2 = 2.5
 
 -- | Generates every point of a circle of radius r and
 -- center c.
 generateCircle :: [ShapePoint]
-generateCircle = map generatePoint [0.0,0.5..2*pi]
+generateCircle = map generatePoint [0.0,0.1..2*pi]
   where
     generatePoint :: Float -> ShapePoint
     generatePoint theta = (Vector r2 0 0 + vradius theta, vnormal theta)
@@ -58,7 +58,7 @@ generateCircle = map generatePoint [0.0,0.5..2*pi]
 -- | Generates every point at the surface of a torus of center c,
 -- rotated on the x-axis by A and on the y-axis by B.
 generateTorus :: Float -> Float -> [ShadedPoint]
-generateTorus a b = concatMap circle [0.0,0.2..2*pi]
+generateTorus a b = concatMap circle [0.0,0.1..2*pi]
   where
     -- | Precomputes some values.
     sin_A = sin a
@@ -84,11 +84,11 @@ generateTorus a b = concatMap circle [0.0,0.2..2*pi]
 -- | Computes the luminance of a point based of its normal vector,
 -- against the light vector (0,1,-1).
 luminance :: ShapePoint -> ShadedPoint
-luminance (point, Vector _ ny nz) = (point, ny - nz)
+luminance (point, Vector nx ny nz) = (point, nx + ny + nz)
 
 luminanceToChar :: Luminance -> Char
 luminanceToChar l
-  | l > 0     = chars !! index
+  | l > 0     = chars !! min (floor (l*8)) 11 --chars !! index
   | otherwise = ' '
   where 
     sqrt2 = 1.4142135624
@@ -115,7 +115,7 @@ zbuffer coordinates = map (solve . conflicts) $ [ (x, y) | y <- take 24 [0..], x
 -- | Projects a vector to a point on the screen.
 project :: Vector Float -> ScreenPos
 project v@(Vector _ _ z) = pair . fmap (round . (* (k/(k2 + z)))) $ v
-  where pair (Vector x y _) = (x+20, y+12)
+  where pair (Vector x y _) = (x+20, y+10)
 
 -- | Creates our final render made out of char,
 -- based on screen coordinates that must get rendered.
@@ -124,13 +124,19 @@ renderScreenCoordinates :: [RenderablePoint] -> Grid
 renderScreenCoordinates = chunksOf 80 . concatMap ((\c -> c:[c]) . snd)
 
 -- | Starts the rendering process.
-render :: Window Int -> [[Char]]
-render win@(Window w h) = do
-  let torus = generateTorus (pi/2) (pi/2)
+render :: Float -> Float -> [[Char]]
+render a b = do
+  let torus = generateTorus a b
   let renderable = map (\(pos, lum) -> (pos, (project pos, luminanceToChar lum))) torus :: [(Vector Float, RenderablePoint)]
   let zbuffered = zbuffer renderable
 
   renderScreenCoordinates zbuffered
+
+renderLoop :: Float -> Float -> IO ()
+renderLoop a b = do
+  putStr "\x1b[H"
+  putStr . init . unlines $ render a b
+  renderLoop (a+0.1) (b-0.1)
 
 main :: IO ()
 main = do
@@ -139,5 +145,4 @@ main = do
     Just a -> return a
     Nothing -> return $ Window 80 24
 
-  let screen = unlines $ render window
-  putStr screen
+  renderLoop (2/pi) 0
